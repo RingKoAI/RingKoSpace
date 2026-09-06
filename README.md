@@ -33,6 +33,32 @@ fixes the three pathologies: learned per-channel input-dependent `a_t` (not a
 constant 0.99), a nonlinear conv content candidate (not a softmax outer product),
 and full history gradients (not `detach`-every-step).
 
+### Why not a matrix-state / fast-weight (KDA / delta-rule) memory?
+
+The lineage's earlier core was a fast-weight memory matrix `S` updated by a
+delta rule (`S ← exp(gate)·S + β·k⊗(v−S·k)`, linear readout). `field/volume`
+carried that into a `D×D` per-head matrix state and plateaued at **eval 2.958**.
+The main line stays single-vector instead, for three accumulated reasons:
+
+1. **Read granularity.** Writing per-token key rows and reading with a linear
+   projection pins effective context to ~1-gram lookback; byte 2-gram entropy
+   (2.031) was never reached.
+2. **Write-path dilution.** Under a constant EMA decay + detached history, the
+   current write contributed only ~1% of its own readout gradient — the k/v
+   projections were barely trainable, and a residual+tied-head shortcut let the
+   model degenerate into a unigram scorer.
+3. **Numerics under bf16.** The only viable training regime was bf16, and there
+   the matrix state doubles down on its two weaknesses: the exponential scans
+   required f64 chunked normalization just to avoid overflow, and the
+   materialized `[B,T,D,D]` state sat far off the roofline (elementwise/
+   memcpy-bound, ~500x gap measured). A `D×D` accumulator magnifies exactly the
+   precision and memory-bandwidth pressure bf16 imposes, so it could only ever
+   advance at short budgets / low precision.
+
+A single per-channel state `h` keeps the same *"old state + gated correction"*
+shape but scans in O(1) log-space with bounded per-channel keep ∈ (0,1) — under
+the **same bf16 regime** it advances cleanly (1.795 → 1.278, past byte 2-gram).
+
 ## Results (all reproducible, same-domain baselines)
 
 | run | config | tokens | final eval | vs byte 2-gram |
