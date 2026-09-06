@@ -74,6 +74,31 @@ ringkospace-generate --ckpt ckpt/step-15000.pt --data-root ./data/skypile --toke
 Each training run ends with an automatic **carry probe** on two held-out 2048-token
 streams — the reported `delta` (carry − from-zero) is the cross-window memory signal.
 
+## Checkpoints & evaluation scope (read before trusting the numbers)
+
+No pretrained weights live in this repo (ckpt/ is gitignored; 68M is ~277MB/step
+and released separately if ever). Every number above was produced under a
+**narrow, single-database regime** — be aware of the gap between probe results
+and real multi-source behaviour:
+
+- The 68M run (final eval 1.2782, carry −0.019/−0.036, BPB 1.844) trained on the
+  **first ~300M tokens of one mined corpus stream** (dominantly government/news
+  style, ~37% title-like lines). It is a *single-distribution* result, not a
+  multi-source one. On real mixed corpora (web/wiki/code/math, other domains)
+  loss, generation quality and cross-window memory **can diverge** from these
+  figures. Do not cite 1.2782 as multi-source performance.
+- Held-out eval = same-domain byte CE vs same-domain n-gram baselines (1-gram
+  4.065 / 2-gram 2.834 on that eval segment). Numbers are only comparable within
+  this eval-set convention.
+- Generation was assessed **windowed** (model never trained for single-step
+  stream roll-out), so outputs carry exposure bias — see docs/SUMMARY-20260906.md.
+- Reported negatives (EMA distillation, Sketch, --evolve at short budget) are
+  equally single-regime; they were rejected as main-line on that evidence, not on
+  a universal proof.
+
+Next-gen training (four-source weighted interleave + streaming-state targets) is
+exactly what addresses the single-db gap — see Roadmap.
+
 ## Repository layout
 
 ```text
@@ -108,6 +133,6 @@ docs/                  DESIGN-v0.md (equations, fixes, term nail), SUMMARY, sket
 ## License
 
 MIT — Copyright (c) 2026 辉夜铃Ring (KaguyaRing) && 玲可AI (RingKoAI).
-Upstream references (no code copied, all implementations independent): Mamba
-parameterization ideas (Gu & Dao, Apache-2.0), FlashKDA (MoonshotAI, MIT) —
-see `NOTICE`. Checkpoints (68M) are released separately, not in this tree.
+Parameterization ideas inspired by Mamba (Gu & Dao, Apache-2.0); all code in
+this repo is independently implemented — see `NOTICE`. Checkpoints (68M) are
+released separately, not in this tree.

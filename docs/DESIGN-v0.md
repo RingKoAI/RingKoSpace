@@ -106,6 +106,7 @@ eval: 1.99@1250 -> 1.92@1500 -> 1.88@1750 -> 1.83@2000 -> 1.82@2250 -> 1.795@250
 - 主线 = **纯 A（CfC-SSM 单线）**
 
 ### 68M 收官（A 主线, D=1280/L14/seq768/bs8/corpus.bin 前 300M 段）
+- ⚠️ **单库 caveat**：本轮只吃单个 mined corpus 前 300M 同段（政务/新闻主导）。以下全部数字是**单分布**结果；换多源/真实混合语料时 loss/生成/跨窗记忆可能有出入，勿外推为多源性能（见 README "Checkpoints & evaluation scope"）。
 - 16000 步 / 98M token / 42 min / RTX 5090 / ~38.6k tok/s
 - eval: 5.21 -> 2.14@1k -> 1.57@5k -> 1.38@10k -> 1.347@11k -> 1.2835@15k -> **1.2782@final**
 - carry 跨窗(final, window 256): stream1 delta **-0.0188** (from-zero 1.567 vs carry 1.548)

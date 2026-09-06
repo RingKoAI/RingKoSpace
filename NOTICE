@@ -13,9 +13,11 @@ Upstream references
   (conv1d + SiLU content gate, per-channel input-dependent step
   exp(-Delta * exp(A_log)), and the D * x current-token skip).
   https://github.com/state-spaces/mamba  — Apache License 2.0
-- FlashKDA: efficient KDA (key-delta accumulator / fast-weight) CUDA kernels
-  used as an external reference baseline for delta-rule-style memory.
-  https://github.com/MoonshotAI/FlashKDA — MIT License, Copyright 2026 MoonshotAI
 - RNCM (PURE DUAL CfC + SSM), flux KDA, field/volume and all earlier RingKo
   models are in-repo prior art under the same MIT terms (see RingKoAI history);
   this work derives from those, not from any third-party codebase.
+
+This project does not include or copy delta-rule / KDA (matrix-state memory)
+implementations; that mechanism family was evaluated and discarded in earlier
+RingKo models. External KDA kernel repos (e.g. MoonshotAI/FlashKDA, MIT) were
+never used as source material.
