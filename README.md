@@ -70,6 +70,11 @@ the **same bf16 regime** it advances cleanly (1.795 → 1.278, past byte 2-gram)
 Cross-window memory (`carry` probe, window=256): dim256 ≈ 0 → 6.5M **−0.009** →
 68M **−0.019/−0.036** — cross-window state use grows with scale.
 
+Entropy ladder on the 68M held-out eval segment (nats/byte): **1-gram 4.065 /
+2-gram 2.834 / 3-gram 1.90 / 4-gram 1.27**. Final eval **1.2782 nats = 1.844
+bits/byte (BPB) ≈ 4-gram entropy** (1.27 nats = 1.83 bits) — the model lands at
+~4-byte effective lookback (conv4); the long-range regime is the open bottleneck.
+
 ### Judged-out mechanisms (kept as honest negatives)
 
 * EMA slow-target (same-position softmax distillation): eval 3.53 vs A 1.795 → **no**.
@@ -138,7 +143,11 @@ docs/                  DESIGN-v0.md (equations, fixes, term nail), SUMMARY, sket
 
 1. `--evolve` single-line fusion: the content candidate linearly evolves the old
    state too (`h = [keep+(1−keep)·a_evo]·h + (1−keep)(1−a_evo)·z`, still closed-form
-   scan). Ablation ladder g=1 / g=const / g(x) / g(x,h,Δt). **Status: A/B running.**
+   scan). Ablation ladder g=1 / g=const / g(x) / g(x,h,Δt).
+   **Status: A/B done — rejected at short budget** (same-token eval 2.0151 vs
+   baseline 2.0043 @ 9M tokens, +32% params; only an early-step advantage).
+   Kept behind the switch for a **parameter-aligned re-test at 128M**. Details:
+   `docs/DESIGN-evolve.md`.
 2. Streaming-state training (carry injection probability + cross-window targets) —
    cures the exposure-bias of window-only training (v0 "closes its eyes" when asked
    to roll out one byte at a time).
@@ -146,6 +155,18 @@ docs/                  DESIGN-v0.md (equations, fixes, term nail), SUMMARY, sket
    relative n-gram as the reporting currency.
 4. Reuse-shaping memory task (only the used survives) replaces the database-style
    recall protocol.
+
+### Open review gaps (external review, 2026-09-06)
+
+* **Transformer control arm** (same dim/layers/tokens, same corpus) is missing —
+   required to place the efficiency-quality tradeoff; the single-domain numbers
+   alone cannot answer "better than what, on what regime".
+* **Multi-source validation** only partially covered by the single-db caveat;
+   Roadmap #3 closes it.
+* **`--evolve` as a headline experiment**: at short budget it did NOT beat the
+   passive-decay baseline, so the current spine is the single-vector recurrence
+   + diagnostics + scaling of carry, not "closed-form state evolution". The 128M
+   parameter-aligned re-test decides whether that stronger claim reopens.
 
 ## Design discipline (from the field/volume post-mortem)
 
