@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ringkospace"
+version = "0.1.0"
+description = "Single-line liquid-gated linear recurrence byte language model (residual-free)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "辉夜铃Ring (KaguyaRing)" },
+    { name = "玲可AI (RingKoAI)" },
+]
+keywords = ["ssm", "byte-lm", "recurrence", "liquid-gated", "ringko"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "torch>=2.2",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ringkospace-train = "ringkospace.train:main"
+ringkospace-generate = "ringkospace.generate:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

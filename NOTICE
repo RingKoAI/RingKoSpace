@@ -1,0 +1,21 @@
+RingKoSpace
+Copyright (c) 2026 辉夜铃Ring (KaguyaRing) && 玲可AI (RingKoAI)
+Licensed under the MIT License (see LICENSE).
+
+This project is an independent implementation. No upstream source code is
+copied; the listed works below inspired the architecture and are included only
+for attribution. Retain this NOTICE in any distribution or derivative.
+
+Upstream references
+-------------------
+- Mamba: Linear-Time Sequence Modeling with Selective State Spaces
+  Albert Gu, Tri Dao (2023). Recurrence parameterization ideas
+  (conv1d + SiLU content gate, per-channel input-dependent step
+  exp(-Delta * exp(A_log)), and the D * x current-token skip).
+  https://github.com/state-spaces/mamba  — Apache License 2.0
+- FlashKDA: efficient KDA (key-delta accumulator / fast-weight) CUDA kernels
+  used as an external reference baseline for delta-rule-style memory.
+  https://github.com/MoonshotAI/FlashKDA — MIT License, Copyright 2026 MoonshotAI
+- RNCM (PURE DUAL CfC + SSM), flux KDA, field/volume and all earlier RingKo
+  models are in-repo prior art under the same MIT terms (see RingKoAI history);
+  this work derives from those, not from any third-party codebase.

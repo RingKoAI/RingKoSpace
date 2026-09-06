@@ -1,0 +1,26 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- Run artifacts ---
+ckpt/
+logs/
+*.log
+*.bin
+*.raw
+.tmp/
+out/
+
+# --- Checkpoints are released separately (Git LFS / GitHub Releases), never in-tree ---
+*.pt
+*.safetensors
+
+# --- Editor / OS ---
+.DS_Store
+.idea/
+.vscode/
