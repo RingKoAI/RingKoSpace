@@ -38,10 +38,10 @@ def main() -> None:
     args = ap.parse_args()
 
     torch.set_float32_matmul_precision("high")
-    ck = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+    ck = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     cfg = ck["config"]
     print(f"[load] step={ck['step']} ema={ck.get('ema_loss')} cfg dim={cfg['dim']} L={cfg['layers']} evolve={cfg.get('evolve', 0)}")
-    model = RingKoSSM(cfg["dim"], cfg["layers"], evolve=bool(cfg.get("evolve", 0))).to(DEV).eval()
+    model = RingKoSSM(cfg["dim"], cfg["layers"], evolve=bool(cfg.get("evolve", 0)), conv_k=cfg.get("conv_k", 4), scan_floor=cfg.get("scan_floor", 1e-2)).to(DEV).eval()
     model.load_state_dict(ck["state_dict"])
 
     pr = first_prompt(args.data_root)

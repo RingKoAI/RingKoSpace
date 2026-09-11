@@ -1,6 +1,7 @@
 """Model definitions: single-line liquid-gated linear recurrence.
 
-Each block owns ONE recurrent state h in [B, D].  No residual, no FFN.
+Each block owns ONE recurrent state h in [B, D]. No FFN or explicit position encoding;
+a learned dv*x input bypass remains.
 Byte LM over a 260 vocab (4 specials + 256 UTF-8 bytes), tied head.
 
 Two modes:
@@ -8,18 +9,20 @@ Two modes:
   evolve=True   the candidate linearly evolves the old state too:
                   h_t = [keep + (1-keep)*a_evo] * h_{t-1}
                         + (1-keep)*(1-a_evo) * z_t
-                effective keep stays in (0,1), so the log-space scan remains
+                effective keep stays in (0,1), so the affine prefix scan remains
                 closed-form. This is the "CfC as step-length controller over a
                 single SSM line" variant (see docs/DESIGN-evolve.md).
 """
 
 from __future__ import annotations
 
-import math
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+
+from ._scan import scan_first_order
+from .stream import StreamState, causal_convolution, forward_stream
 
 PAD, BOS, EOS, UNK = 0, 1, 2, 3
 VOCAB = 260  # 4 special + 256 bytes
@@ -34,12 +37,17 @@ class LiquidSSMBlock(nn.Module):
         a_t     = exp( -Delta * exp(A_log) )           per-channel keep gate
         h_t     = a_t * h_{t-1} + (1 - a_t) * z_t      single-line update
 
-    Parallel: with log-space cumsum over the sequence axis (history NOT
-    detached, window-level gradients).  Read: y = Wr * LN(h), no residual.
+    Parallel: affine prefix within chunks along the sequence axis (history NOT
+    detached, window-level gradients).  Read: y = Wr * LN(h) * scale + dv*x.
     """
 
-    def __init__(self, dim: int, conv_k: int = 4, evolve: bool = False) -> None:
+    def __init__(self, dim: int, conv_k: int = 4, evolve: bool = False, scan_floor: float = 1e-2) -> None:
         super().__init__()
+        if dim <= 0 or conv_k <= 0:
+            raise ValueError("dim and conv_k must be positive")
+        if not 0 <= scan_floor <= 1:
+            raise ValueError("scan_floor must be in [0,1]")
+        self.scan_floor = scan_floor
         self.dim = dim
         self.evolve = evolve
         self.norm = nn.LayerNorm(dim)
@@ -62,12 +70,15 @@ class LiquidSSMBlock(nn.Module):
         nn.init.normal_(self.wz.weight, std=0.02)
 
     def forward(self, x: Tensor, state: Tensor | None) -> tuple[Tensor, Tensor]:
+        y, carry, _ = self._forward(x, state)
+        return y, carry
+
+    def _forward(self, x: Tensor, state: Tensor | None, history: Tensor | None = None,
+                 streaming: bool = False) -> tuple[Tensor, Tensor, Tensor | None]:
         # x: [B,T,D]; state: [B,D] or None
         b, t, d = x.shape
         hn = self.norm(x)
-        hn = hn.transpose(1, 2)  # [B,D,T]
-        hc = self.conv(hn)[..., :t]
-        hc = F.silu(hc).transpose(1, 2)  # [B,T,D]  (short local memory)
+        hc, next_history = causal_convolution(self.conv, hn, history, streaming)
 
         z = F.silu(self.wz(hc))  # [B,T,D] content
         delta = F.softplus(self.wd(hc) + self.d_bias.view(1, 1, d))  # >0
@@ -80,58 +91,53 @@ class LiquidSSMBlock(nn.Module):
             keep_eff = keep
             inc_eff = (1.0 - keep) * z
 
-        # Parallel first-order scan over keep_eff, f64 chunked (per-chunk local
-        # rescale so the exponential never leaves f64 range). History NOT
-        # detached: every past step gets gradient (window-level BPTT).
-        inc = inc_eff.double()
-        logk = torch.log(keep_eff.clamp_min(1e-2)).double()  # chunk-local exponent bound
-        c = 32
-        pt = math.ceil(t / c) * c
-        if pt != t:
-            logk = F.pad(logk, (0, 0, 0, pt - t), value=0.0)
-            inc = F.pad(inc, (0, 0, 0, pt - t), value=0.0)
-        bsz = b
-        logk = logk.view(bsz, pt // c, c, d)
-        inc = inc.view(bsz, pt // c, c, d)
-        igate = torch.cumsum(logk, dim=2)
-        weighted = torch.exp(-igate) * inc
-        prefix = torch.cumsum(weighted, dim=2)
-        carry = state.double().unsqueeze(1) if state is not None else None
-        states: list[Tensor] = []
-        for ci in range(pt // c):
-            cst = (prefix[:, ci] + (carry if carry is not None else 0.0)) * torch.exp(
-                igate[:, ci]
-            )
-            states.append(cst)
-            carry = cst[:, -1:]
-        h_seq = torch.cat(states, dim=1)[:, :t].float()  # [B,T,D]
-        if carry is None:
-            carry = torch.zeros(bsz, 1, d, device=x.device, dtype=torch.float64)
+        h_seq, carry = scan_first_order(keep_eff.clamp_min(self.scan_floor), inc_eff, state)
 
         # read
         y = self.wr(self.norm(h_seq)) * self.scale.view(1, 1, d) + self.dv.view(
             1, 1, d
         ) * x
-        return y, carry[:, 0].float().contiguous()
+        return y, carry, next_history
 
 
 class RingKoSSM(nn.Module):
-    def __init__(self, dim: int, layers: int, conv_k: int = 4, evolve: bool = False) -> None:
+    def __init__(self, dim: int, layers: int, conv_k: int = 4, evolve: bool = False, scan_floor: float = 1e-2) -> None:
         super().__init__()
+        if dim <= 0 or conv_k <= 0:
+            raise ValueError("dim and conv_k must be positive")
+        if not 0 <= scan_floor <= 1:
+            raise ValueError("scan_floor must be in [0,1]")
+        self.scan_floor = scan_floor
         self.dim = dim
         self.evolve = evolve
+        if layers <= 0:
+            raise ValueError("layers must be positive")
+        self._stream_owner = object()
         self.embedding = nn.Embedding(VOCAB, dim, padding_idx=PAD)
         nn.init.normal_(self.embedding.weight, std=0.02)
-        self.blocks = nn.ModuleList([LiquidSSMBlock(dim, conv_k, evolve) for _ in range(layers)])
+        self.blocks = nn.ModuleList([LiquidSSMBlock(dim, conv_k, evolve, scan_floor) for _ in range(layers)])
         self.final_norm = nn.LayerNorm(dim)
         self.head = nn.Linear(dim, VOCAB, bias=False)
         self.head.weight = self.embedding.weight
         self.layers = layers
 
+    def forward_stream(self, x: Tensor, state: StreamState | None = None) -> tuple[Tensor, StreamState]:
+        """Continue with complete recurrent + convolution history, or reset with None."""
+        return forward_stream(self, x, state)
+
     def count_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
     def forward(self, x: Tensor, states: list[Tensor] | None = None) -> tuple[Tensor, list[Tensor]]:
+        """Window forward; states seed only the recurrence, not convolution.
+
+        For contiguous chunks use forward_stream and its complete StreamState.
+        This legacy API is retained for checkpoint-era callers.
+        """
+        if not isinstance(x, Tensor) or x.ndim != 2 or any(n == 0 for n in x.shape):
+            raise ValueError("tokens must be nonempty [B,T]")
+        if states is not None and (not isinstance(states, (list, tuple)) or len(states) != self.layers):
+            raise ValueError("states must contain one recurrent tensor per layer; use forward_stream for streaming")
         b, t = x.shape
         h = self.embedding(x)
         next_states: list[Tensor] = []

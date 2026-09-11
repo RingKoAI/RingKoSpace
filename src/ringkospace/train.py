@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="RingKoSpace byte-LM training")
     ap.add_argument("--dim", type=int, default=256)
     ap.add_argument("--layers", type=int, default=4)
+    ap.add_argument("--scan-floor", type=float, default=0.0, help="explicit keep floor; 0 is exact recurrence")
     ap.add_argument("--evolve", type=int, default=0,
                     help="single-line fused evolution: candidate carries a_evo*h")
     ap.add_argument("--seq", type=int, default=256)
@@ -75,10 +76,10 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[data] jsonl train={len(train)} eval={len(ev)}", flush=True)
 
     evo = bool(args.evolve)
-    model = M.RingKoSSM(args.dim, args.layers, evolve=evo).to(dev).train()
+    model = M.RingKoSSM(args.dim, args.layers, evolve=evo, scan_floor=args.scan_floor).to(dev).train()
     teacher = None
     if args.ema:
-        teacher = M.RingKoSSM(args.dim, args.layers, evolve=evo).to(dev)
+        teacher = M.RingKoSSM(args.dim, args.layers, evolve=evo, scan_floor=args.scan_floor).to(dev)
         teacher.load_state_dict(model.state_dict())
         for p in teacher.parameters():
             p.requires_grad_(False)
